@@ -24,9 +24,11 @@ from program_starter.class_zeropro_starter import logger
 
 
 class MongoHandler:
-    def __init__(self):
+    def __init__(self, mongodb_connection_string = None):
         try:
             mongo_uri = os.getenv("MONGODB_CONNECTION_STRING")
+            if mongodb_connection_string:
+                mongo_uri = mongodb_connection_string
             self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
             self.db = self.client[os.getenv("MONGO_DBNAME", "TradeZero_Bot")]
         except Exception as e:

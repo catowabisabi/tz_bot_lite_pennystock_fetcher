@@ -153,6 +153,7 @@ def main(debug = False):
             # Remove non-alphabetic characters to clean up stock symbols
             return [re.sub(r'[^A-Z]', '', symbol) for symbol in symbols]
 
+
     clean_filtered_top_gainers_symbols = clean_symbols(filtered_top_gainers_symbols) #['SBET', 'MBAVW', 'FAAS']
 
     

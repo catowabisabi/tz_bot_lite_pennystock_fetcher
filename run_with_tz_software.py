@@ -57,41 +57,34 @@ class MainController:
         self.db_manager.setup_table()
         self.create_mongo_collection(self.table_name)
 
-        #print("debug anchor =============================================== 1")
-
-        
         
         print(f"Document is created: {self.mongo_handler.find_doc("today_top_list", {'today_date': today_str})}")
     
         # Initialize ZeroPro and capture window handle
         hwnd = self.zeropro.initialize()
-        #print("debug anchor =============================================== 2")
+
 
 
 
         # Fetch gainers list and clean symbols
         top_list_df, cleaned_symbols = self.top_list_handler.get_data(hwnd) # cleaned_symbols is already in MongoDB
 
-        #print("debug anchor =============================================== 3")
 
         print("\n\n一開始的upsert")
         self.mongo_handler.upsert_doc(self.table_name, {"today_date": today_str}, {"symbols":cleaned_symbols})
 
 
-        #print("debug anchor =============================================== 4")
+
 
         # Insert to database
         processor = WatchListProcessor()
         processor.insert_to_db(top_list_df, self.db, self.table_name)
 
 
-        #print("debug anchor =============================================== 5")
-
         # Run analysis on top symbols
         self.analysis_runner.run(cleaned_symbols)
 
 
-        #print("debug anchor =============================================== 6")
 
 
 
