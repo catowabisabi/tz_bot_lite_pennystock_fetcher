@@ -214,11 +214,21 @@ class SECFinancialAnalyzer:
             if not cik:
                 return {"Symbol": symbol.upper(), "Error": "CIK not found"}
 
-            # 获取申报文件
-            filings = self.session.get(
-                f"https://data.sec.gov/submissions/CIK{cik}.json",
-                headers=self.HEADERS
-            ).json().get('filings', {}).get('recent', {})
+            try:
+                # 获取申报文件
+                filings = self.session.get(
+                    f"https://data.sec.gov/submissions/CIK{cik}.json",
+                    headers=self.HEADERS
+                ).json().get('filings', {}).get('recent', {})
+            except Exception as e:
+                print(f"Error fetching filings for {symbol}: {e}")
+                return {
+                    "Symbol": symbol.upper(),
+                    "Error": str(e),
+                    "Data Date": datetime.now().strftime("%Y-%m-%d")
+                }
+
+            
 
             # Shelf文件分析
             shelf_filings = [
@@ -241,10 +251,14 @@ class SECFinancialAnalyzer:
                 headers=self.HEADERS
             ).json().get("facts", {}).get("us-gaap", {})
 
+            
+
             cash = self.get_metric(facts, [
                 'CashAndCashEquivalentsAtCarryingValue',
                 'CashCashEquivalentsAndShortTermInvestments'
             ])
+
+            print(f"\n{symbol} cash: {cash}")
             
             debt = self.get_metric(facts, [
                 'LongTermDebt',
@@ -306,58 +320,62 @@ class SECFinancialAnalyzer:
             }
 
     def print_results(self, results):
-        """打印专业报表"""
-        df = pd.DataFrame(results)
-        
-        # 选择要显示的列
-        display_cols = [
-            'Symbol', 'Cash', 'Debt', 'Cash/Debt Ratio', 
-            'Total Shelf Filings', 'Valid Shelf Filings',
-            'ATM Risk Level', 'Risk Reason'
-        ]
-        
-        # 格式化打印
-        print("\n" + "="*120)
-        print("SEC ATM RISK ANALYSIS REPORT".center(120))
-        print("="*120)
-        print(tabulate(
-            df[display_cols], 
-            headers='keys', 
-            tablefmt='grid',
-            showindex=False,
-            floatfmt=".2f"
-        ))
-        print("="*120)
-        
-        # 打印风险分布摘要
-        risk_dist = df['ATM Risk Level'].value_counts()
-        print("\nRISK DISTRIBUTION:")
-        print(risk_dist.to_string())
-        
-        # 打印最高风险公司
-        high_risk = df[df['ATM Risk Level'].isin(['Very High', 'High'])]
-        if not high_risk.empty:
-            print("\nHIGH RISK COMPANIES:")
-            print(high_risk[['Symbol', 'ATM Risk Level', 'Risk Reason']].to_string(index=False))
-        
-        # 打印交易建议
-        print("\n" + "="*120)
-        print("TRADING RECOMMENDATIONS".center(120))
-        print("="*120)
-        for result in results:
-            if "Error" in result:
-                continue
+        try:
             
-            print(f"\n{result['Symbol']} - {result['Trading Recommendation']} (Confidence: {result['Recommendation Confidence']})")
-            print(f"ATM Risk Level: {result['ATM Risk Level']}")
+            """打印专业报表"""
+            df = pd.DataFrame(results)
             
-            print("Reasons:")
-            for i, reason in enumerate(result['Recommendation Reasons'], 1):
-                print(f"  {i}. {reason}")
+            # 选择要显示的列
+            display_cols = [
+                'Symbol', 'Cash', 'Debt', 'Cash/Debt Ratio', 
+                'Total Shelf Filings', 'Valid Shelf Filings',
+                'ATM Risk Level', 'Risk Reason'
+            ]
+            
+            # 格式化打印
+            print("\n" + "="*120)
+            print("SEC ATM RISK ANALYSIS REPORT".center(120))
+            print("="*120)
+            print(tabulate(
+                df[display_cols], 
+                headers='keys', 
+                tablefmt='grid',
+                showindex=False,
+                floatfmt=".2f"
+            ))
+            print("="*120)
+            
+            # 打印风险分布摘要
+            risk_dist = df['ATM Risk Level'].value_counts()
+            print("\nRISK DISTRIBUTION:")
+            print(risk_dist.to_string())
+            
+            # 打印最高风险公司
+            high_risk = df[df['ATM Risk Level'].isin(['Very High', 'High'])]
+            if not high_risk.empty:
+                print("\nHIGH RISK COMPANIES:")
+                print(high_risk[['Symbol', 'ATM Risk Level', 'Risk Reason']].to_string(index=False))
+            
+            # 打印交易建议
+            print("\n" + "="*120)
+            print("TRADING RECOMMENDATIONS".center(120))
+            print("="*120)
+            for result in results:
+                if "Error" in result:
+                    continue
                 
-            print(f"Trading Strategy: {result['Trading Strategy']}")
-            print(f"Short Squeeze Risk: {result['Short Squeeze Risk']}")
-            print("-" * 80)
+                print(f"\n{result['Symbol']} - {result['Trading Recommendation']} (Confidence: {result['Recommendation Confidence']})")
+                print(f"ATM Risk Level: {result['ATM Risk Level']}")
+                
+                print("Reasons:")
+                for i, reason in enumerate(result['Recommendation Reasons'], 1):
+                    print(f"  {i}. {reason}")
+                    
+                print(f"Trading Strategy: {result['Trading Strategy']}")
+                print(f"Short Squeeze Risk: {result['Short Squeeze Risk']}")
+                print("-" * 80)
+        except Exception as e:
+            print(f"Error printing results: {e}")
 
     def generate_html_report(self, results):
         """生成专业HTML报告"""
@@ -472,6 +490,7 @@ class SECFinancialAnalyzer:
         start_time = time.time()
         
         cik_map = self.load_cik_mapping()
+        
         if not cik_map:
             print("Failed to load CIK mappings. Exiting.")
             return None
@@ -480,6 +499,7 @@ class SECFinancialAnalyzer:
         for idx, symbol in enumerate(self.SYMBOL_LIST):
             print(f"\nProcessing {symbol} ({idx+1}/{len(self.SYMBOL_LIST)})...")
             result = self.get_company_data(symbol, cik_map)
+            
             
             results.append(result)
             
@@ -511,5 +531,5 @@ class SECFinancialAnalyzer:
 
 if __name__ == "__main__":
     analyzer = SECFinancialAnalyzer()
-    analyzer.SYMBOL_LIST = ['UPC']
+    analyzer.SYMBOL_LIST = ['LZMH']
     analysis_results = analyzer.run_analysis()

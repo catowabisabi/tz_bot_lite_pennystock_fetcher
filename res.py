@@ -18,4 +18,4 @@ def get_fundamentals(symbol):
     else:
         print(f"Error: {response.status_code}")
 
-get_fundamentals("ALZN")
+get_fundamentals("AAPL")

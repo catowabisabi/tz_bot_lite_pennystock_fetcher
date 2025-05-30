@@ -167,12 +167,12 @@ def main(debug = False):
 
 
 
-    """clean_filtered_top_gainers_symbols = clean_symbols(['ALZN', 
-                                                        'STRM',
-                                                        'ZEO', 
-                                                        'PLRZ',
-                                                        'NAOV', 
-                                                        'VCIG', 
+    clean_filtered_top_gainers_symbols = clean_symbols(['HKD', 
+                                                        'LZMH',
+                                                        'PLRZ', 
+                                                        'KTTA',
+                                                        'MRIN', 
+                                                        'FOXO', 
                                                         'CHEB']
                                                         )#debug """
 
