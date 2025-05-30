@@ -210,6 +210,7 @@ class PolygonAPI:
         def __init__(self, parent_api: 'PolygonAPI'):
             self.parent_api = parent_api
 
+        #region Get Tickers
         def get_tickers(self, ticker=None, type=None, market=None, exchange=None, cusip=None, cik=None, date=None, search=None, active=True, sort='ticker', order='asc', limit=1000):
             """
             List all tickers or search for tickers.
@@ -236,7 +237,7 @@ class PolygonAPI:
                 ticker=ticker_symbol
             )
 
-        def get_stock_financials_vx(self, ticker, limit=5, period_of_report_date_lt=None, period_of_report_date_lte=None, period_of_report_date_gt=None, period_of_report_date_gte=None, timeframe=None, include_sources=False):
+        def get_stock_financials_vx_0(self, ticker, limit=5, period_of_report_date_lt=None, period_of_report_date_lte=None, period_of_report_date_gt=None, period_of_report_date_gte=None, timeframe=None, include_sources=False):
             """
             Get historical financial data for a stock ticker.
             Full documentation: https://polygon.io/docs/stocks/get_vx_reference_financials
@@ -249,6 +250,30 @@ class PolygonAPI:
                 ticker_symbol=ticker, # Note: client method uses ticker_symbol
                 **params
             )
+        
+        
+
+        def get_stock_financials_vx(self, ticker, limit=5, timeframe=None):
+            url = "https://api.polygon.io/vX/reference/financials"
+            params = {
+                "ticker": ticker,
+                "limit": limit,
+                "apiKey": self.parent_api.api_key
+            }
+            if timeframe:
+                params["timeframe"] = timeframe
+
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+
+            logger.info(f"Successfully fetched data for '{"vX/reference/financials"}'. Items: {len(response) if isinstance(response, list) else 1}")
+            
+            filename_base = self.parent_api._generate_filename("vX/reference/financials", params)
+            self.parent_api._save_response_to_file(filename_base, response)
+
+
+            return response.json()
+
         
         def get_market_status(self):
             """
@@ -567,7 +592,7 @@ if __name__ == '__main__':
         logger.error(f"Initialization failed: {e}")
         sys.exit(1)
 
-    """ test_stock_ticker = 'AAPL'
+    test_stock_ticker = 'AAPL'
     test_forex_ticker = 'C:EURUSD' # Note the 'C:' prefix for forex
     test_crypto_ticker = 'X:BTCUSD' # Note the 'X:' prefix for crypto
 
@@ -576,24 +601,29 @@ if __name__ == '__main__':
     past_date_str = past_date.strftime('%Y-%m-%d')
     today_str = today.strftime('%Y-%m-%d')
 
+    #region Ticker INFO
     logger.info("\n--- Testing Reference Data ---")
     tickers = polygon_client.reference.get_tickers(market='stocks', search='Apple', limit=2)
     if tickers and hasattr(tickers, 'results') and tickers.results:
         print(f"Found tickers for 'Apple' (first {len(tickers.results)}): {[t.ticker for t in tickers.results]}")
     
     aapl_details = polygon_client.reference.get_ticker_details(test_stock_ticker)
-    if aapl_details and hasattr(aapl_details, 'results') and aapl_details.results:
-        print(f"Details for {test_stock_ticker}: Name - {aapl_details.results.name}, Market Cap - {aapl_details.results.market_cap}")
-
+    if aapl_details and hasattr(aapl_details, 'market_cap') :
+        print(f"Details for {test_stock_ticker}: Name - {aapl_details.name}, Market Cap - {aapl_details.market_cap}")
+        
+    #region Market Status
     market_status = polygon_client.reference.get_market_status()
     if market_status and hasattr(market_status, 'market'):
-        print(f"Current Market Status: {market_status.market}, Server Time: {datetime.fromtimestamp(market_status.server_time / 1000000000, tz=NY_TZ)}")
+        server_time_dt = datetime.fromisoformat(market_status.server_time)
+        print(f"Current Market Status: {market_status.market}, Server Time: {server_time_dt}")
 
-    # financials = polygon_client.reference.get_stock_financials_vx(test_stock_ticker, limit=1, timeframe="annual")
-    # if financials and hasattr(financials, 'results') and financials.results:
-    #     print(f"Latest annual financial report date for {test_stock_ticker}: {financials.results[0].end_date}")
+    #region Finanicals
+    financials = polygon_client.reference.get_stock_financials_vx(test_stock_ticker, limit=1, timeframe="annual")
+    if financials and hasattr(financials, 'results') and financials.results:
+        print(f"Latest annual financial report date for {test_stock_ticker}: {financials.results[0].end_date}")
 
 
+    #region Market Data
     logger.info(f"\n--- Testing Market Data for {test_stock_ticker} ---")
     stock_aggs = polygon_client.market.get_stock_aggregates(
         ticker=test_stock_ticker, 
@@ -603,16 +633,20 @@ if __name__ == '__main__':
         to_date=today_str,
         limit=2
     )
+
+    #region stock_aggs
     if stock_aggs and hasattr(stock_aggs, 'results') and stock_aggs.results:
         print(f"Daily aggregates for {test_stock_ticker} (first {len(stock_aggs.results)}):")
         for agg in stock_aggs.results:
             print(f"  Date: {datetime.fromtimestamp(agg.t / 1000).strftime('%Y-%m-%d')}, Close: {agg.c}")
     
+
+    #region Prve Close
     prev_close = polygon_client.market.get_stock_previous_close(test_stock_ticker)
     if prev_close and hasattr(prev_close, 'results') and prev_close.results:
          print(f"Previous close for {test_stock_ticker}: {prev_close.results[0].c} on {datetime.fromtimestamp(prev_close.results[0].t / 1000).strftime('%Y-%m-%d')}")
 
-
+"""
     logger.info(f"\n--- Testing Market Data for {test_forex_ticker} ---")
     forex_aggs = polygon_client.market.get_forex_aggregates(
         ticker=test_forex_ticker,
