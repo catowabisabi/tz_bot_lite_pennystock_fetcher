@@ -8,7 +8,7 @@ from tabulate import tabulate
 
 class AccountFetcher:
     def __init__(self, token=None, cache_file=".tz_token_cache.json"):
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
         

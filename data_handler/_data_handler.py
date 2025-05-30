@@ -5,9 +5,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from data_handler.merge_data import DataMerge
 from data_handler.short_squeeze_scanner2 import ShortSqueezeScanner
 
-from tz_api.api_stock_fundamental import FundamentalsFetcher
-from tz_api.api_news_fetcher import NewsFetcher
-from tz_api.api_chart import ChartAnalyzer
+from api_tradezero.api_stock_fundamental import FundamentalsFetcher
+from api_tradezero.api_news_fetcher import NewsFetcher
+from api_tradezero.api_chart import ChartAnalyzer
 
 from get_sec_filings.get_sec_filings_5_demo import SECFinancialAnalyzer
 
@@ -197,6 +197,10 @@ class DataHandler:
         merger = SymbolMerger(all_keys)
         self.fundamentals = merger.merge(list_of_symbols, fundamentals, price_results)
 
+        logger.info (f"Fundamentals Lengths: {len(self.fundamentals)}")
+
+        #region Short Squeeze Scan
+        logger.info("Starting Short Squeeze Analysis")
         list_of_short_squeeze_results = []
         for fundamental in self.fundamentals:
             
@@ -209,6 +213,8 @@ class DataHandler:
             )
             list_of_short_squeeze_results.append(short_squeeze_results)
             self.squeeze_scanner.print_readable_analysis()
+
+        logger.info (f"list_of_short_squeeze_results Lengths: {len(list_of_short_squeeze_results)}")
 
         self.fundamentals = merger.merge(list_of_symbols, self.fundamentals, list_of_short_squeeze_results)
 
@@ -415,15 +421,22 @@ class DataHandler:
 
         #print(self.merged_fundamentals)
         new_filing_financial_analysis_results = []
-        for entry in self.merged_fundamentals:
-            sec_filing_analysis = entry['fundamental']["sec_filing_analysis"]
-            new_filing_financial_analysis_results.append(sec_filing_analysis)
+        try: 
+            for entry in self.merged_fundamentals:
+                sec_filing_analysis = entry['fundamental']["sec_filing_analysis"]
+                new_filing_financial_analysis_results.append(sec_filing_analysis)
+        except:
+            logger.warning("No sec_filing_analysis found")
+        
 
         new_fundamentals = []
-        for entry in self.merged_fundamentals:
-            fundamental = entry['fundamental']
-            new_fundamentals.append(fundamental)
-            new_fundamentals.append(entry)
+        try:
+            for entry in self.merged_fundamentals:
+                fundamental = entry['fundamental']
+                new_fundamentals.append(fundamental)
+                new_fundamentals.append(entry)
+        except:
+            logger.warning("No fundamental found")	
         
 
         return new_fundamentals, new_filing_financial_analysis_results
@@ -435,7 +448,8 @@ if __name__ == "__main__":
     list_of_symbols =  ['FOXO', 'KTTA', 'MRIN']
 
     data_handler = DataHandler()
-    data_handler.run(list_of_symbols)
+    #data_handler.run(list_of_symbols)
+    data_handler.get_list_of_fundamentals(list_of_symbols)
     
 
 

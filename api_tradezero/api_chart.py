@@ -15,7 +15,7 @@ class ChartAnalyzer:
    
         self.symbol = symbol
 
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
 

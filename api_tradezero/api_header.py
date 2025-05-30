@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 class AuthHeader:
     def __init__(self, token=None):
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
 

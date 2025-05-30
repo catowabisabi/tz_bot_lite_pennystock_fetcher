@@ -11,7 +11,7 @@ from collections import defaultdict
 class TradeZeroPositionFetcher:
     def __init__(self, token=None):
         # 初始化 TokenCache 來處理 Token 的加載和儲存
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
         self.customer_id = self.tz_auth.customer_id

@@ -9,7 +9,7 @@ from tabulate import tabulate
 
 class FeatureFlagsFetcher:
     def __init__(self):
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
 

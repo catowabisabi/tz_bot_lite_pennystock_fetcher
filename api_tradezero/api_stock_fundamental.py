@@ -4,7 +4,11 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import requests
 from tabulate import tabulate
-from tz_api.api_auth import TzAuth
+from api_tradezero.api_auth import TzAuth
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+from urllib.parse import urlencode
 
 
 # region fundamentals
@@ -67,9 +71,11 @@ class FundamentalsFetcher:
 
 
     
+    
+
     def fetch_symbols(self, symbols: list[str]):
-        symbols_param = ",".join([s.upper() for s in symbols])
-        url = f"{self.base_url}?symbols={symbols_param}"
+        params = [("symbols", s.upper()) for s in symbols]
+        url = f"{self.base_url}?{urlencode(params)}"
         headers = {
             "Authorization": f"Bearer {self.jwt_token}",
             "Content-Type": "application/json"
@@ -80,14 +86,17 @@ class FundamentalsFetcher:
         try:
             response = requests.get(url, headers=headers)
             response.raise_for_status()
+            print("Fetched fundamentals - Response Status Code:", response.status_code)
             data = response.json()
+            print(data)
 
+            if response.status_code == 200:
+                print(f"Fetched fundamentals for symbols: {', '.join(symbols)}")
+                print("✅ Fetched fundamentals for symbols, code: Success")
             if not data:
                 print("⚠️ No data returned for the requested symbols.")
                 return []
-            
-            # 去重：根據 symbol 字段建一個 dict（保持順序）
-            # 去重：根據 symbol 字段建一個 dict（保持順序）
+
             unique_data = {}
             for item in data:
                 sym = item.get("symbol")
@@ -99,11 +108,12 @@ class FundamentalsFetcher:
                 print("================================================")
                 self.display(symbol_data)
 
-            return list(unique_data.values())  # 總是返回 list
+            return list(unique_data.values())
 
         except requests.RequestException as e:
             print(f"❌ Failed to fetch symbols due to: {e}")
-            return []  # 例外時也返回空 list
+            return []
+
 
 
 
@@ -113,7 +123,10 @@ if __name__ == "__main__":
     #data  = fetcher.fetch("AAPL")
     #print(data)
 
+    tz_auth = TzAuth()
+    tz_auth.login_and_cache_token()
+
     
 
-    data = fetcher.fetch_symbols(["AAPL", "MSFT"])
+    data = fetcher.fetch_symbols(["AAPL", "TSLA"])
     #print(data)

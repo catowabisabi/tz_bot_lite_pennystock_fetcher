@@ -298,6 +298,7 @@ class SECFinancialAnalyzer:
             return result
             
         except Exception as e:
+            print(f"Error processing sec filings for {symbol}: {e}")
             return {
                 "Symbol": symbol.upper(),
                 "Error": str(e),
@@ -479,6 +480,7 @@ class SECFinancialAnalyzer:
         for idx, symbol in enumerate(self.SYMBOL_LIST):
             print(f"\nProcessing {symbol} ({idx+1}/{len(self.SYMBOL_LIST)})...")
             result = self.get_company_data(symbol, cik_map)
+            
             results.append(result)
             
             # 打印单公司结果
@@ -502,7 +504,9 @@ class SECFinancialAnalyzer:
         self.generate_html_report(results)
         
         print(f"\nAnalysis completed in {time.time()-start_time:.2f} seconds")
-        print(results)
+        if len(results) > 0:
+            print(results)
+        else: print("No SEC filings found for the provided symbols.")
         return results
 
 if __name__ == "__main__":

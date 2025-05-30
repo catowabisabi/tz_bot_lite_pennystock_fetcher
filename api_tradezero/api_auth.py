@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import json
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from tz_api.api_login_jwt import TradeZeroLogin  # 你原本的 login 類別
+from api_tradezero.api_login_jwt import TradeZeroLogin  # 你原本的 login 類別
 
 
 load_dotenv(override=True)
@@ -59,4 +59,5 @@ class TzAuth:
 
 if __name__ == "__main__":
     tz_auth = TzAuth()
+    tz_auth.login_and_cache_token()
     jwt_token = tz_auth.jwt_token

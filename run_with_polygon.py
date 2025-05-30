@@ -17,6 +17,7 @@ from database._mongodb.mongo_handler import MongoHandler
 from data_handler._data_handler import DataHandler
 from dotenv import load_dotenv
 load_dotenv(override=True)
+from api_tradezero.api_auth import TzAuth
 
 
 
@@ -157,7 +158,34 @@ def main(debug = False):
     clean_filtered_top_gainers_symbols = clean_symbols(filtered_top_gainers_symbols) #['SBET', 'MBAVW', 'FAAS']
 
     
-    #clean_filtered_top_gainers_symbols = clean_symbols(['AAPL', 'MSFT', 'TSLA'])#debug
+
+
+
+
+
+
+
+
+
+    """clean_filtered_top_gainers_symbols = clean_symbols(['ALZN', 
+                                                        'STRM',
+                                                        'ZEO', 
+                                                        'PLRZ',
+                                                        'NAOV', 
+                                                        'VCIG', 
+                                                        'CHEB']
+                                                        )#debug """
+
+
+
+
+
+
+
+
+
+
+
     logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: Cleaned Filtered Symbols: {str(clean_filtered_top_gainers_symbols)}\n")
     #endregion
 
@@ -225,6 +253,8 @@ def schedule_jobs(callback):
 
 
 if __name__ == "__main__":
+    tz_auth = TzAuth()
+    tz_auth.login_and_cache_token()
     main()
     schedule_jobs(lambda: scheduled_main())
     

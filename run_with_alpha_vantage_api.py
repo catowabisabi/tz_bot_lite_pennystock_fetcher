@@ -23,7 +23,7 @@ import time
 # Make sure the file containing these classes is in your PYTHONPATH or same directory
 # For demonstration, let's assume it's named alpha_vantage_services.py
 try:
-    from alpha_vantage_api_refactored import (
+    from alpha_vantage_api.alpha_vantage_api_refactored import (
         AlphaVantageAPI, TopMovers, Charts, Market, News, 
         Fundamentals, SECFiling, EconomicIndicators, Analysis
     )

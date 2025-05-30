@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 class TradeZeroNegotiator:
     def __init__(self, token=None):
-        from tz_api.api_auth import TzAuth
+        from api_tradezero.api_auth import TzAuth
         self.tz_auth = TzAuth()
         self.jwt_token = self.tz_auth.jwt_token
 
