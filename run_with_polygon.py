@@ -167,7 +167,7 @@ def main(debug = False):
 
 
 
-    clean_filtered_top_gainers_symbols = clean_symbols(['HKD', 
+    """clean_filtered_top_gainers_symbols = clean_symbols(['HKD', 
                                                         'LZMH',
                                                         'PLRZ', 
                                                         'KTTA',
@@ -253,8 +253,8 @@ def schedule_jobs(callback):
 
 
 if __name__ == "__main__":
-    tz_auth = TzAuth()
-    tz_auth.login_and_cache_token()
+    #tz_auth = TzAuth()
+    #tz_auth.login_and_cache_token()
     main()
     schedule_jobs(lambda: scheduled_main())
     
