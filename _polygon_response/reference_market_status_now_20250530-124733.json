@@ -1,0 +1,9 @@
+{
+  "after_hours": false,
+  "currencies": "MarketCurrencies(crypto='open', fx='open')",
+  "early_hours": false,
+  "exchanges": "MarketExchanges(nasdaq='closed', nyse='closed', otc='closed')",
+  "indicesGroups": "MarketIndices(s_and_p='closed', societe_generale='closed', cgi='closed', msci='closed', ftse_russell='closed', mstar='open', mstarc='open', cccy='open', nasdaq='closed', dow_jones='closed')",
+  "market": "closed",
+  "server_time": "2025-05-30T00:47:33-04:00"
+}
