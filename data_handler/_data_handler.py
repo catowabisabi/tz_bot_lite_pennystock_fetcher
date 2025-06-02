@@ -12,9 +12,12 @@ from api_tradezero.api_chart import ChartAnalyzer
 from get_sec_filings.get_sec_filings_5_demo import SECFinancialAnalyzer
 
 from database._mongodb.mongo_handler import MongoHandler
-from datetime import datetime
+
 from zoneinfo import ZoneInfo
 from program_starter.class_zeropro_starter import logger
+from datetime import datetime, timedelta
+
+import time
 
 
 ny_today = datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
@@ -280,12 +283,33 @@ class DataHandler:
         #region Fundamentals Collection
         # Step 1: 拿最新的 fundamentals, get the latest fundamentals
         self.fundamentals = self.handle_symbols(self.list_of_symbols)
+        ny_time = datetime.now(ZoneInfo("America/New_York"))
+        date_list = [(ny_time - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+
+        # 查詢最近7天有fundamental的symbol
+        recent_fundamental_docs = self.mongo_handler.find_doc(
+            "fundamentals_of_top_list_symbols",
+            {
+                "symbol": {"$in": [f["symbol"] for f in self.fundamentals]},
+                "today_date": {"$in": date_list}
+            }
+        )
+        recent_symbols = set(doc["symbol"] for doc in recent_fundamental_docs)
+
+        
         for fundamental in self.fundamentals:
-            fundamental["today_date"] = ny_today
-            self.mongo_handler.upsert_doc(
-                "fundamentals_of_top_list_symbols", 
-                {"symbol": fundamental["symbol"]}, 
-                fundamental)#加入新的top list fundamentals
+            if fundamental["symbol"] in recent_symbols:
+                # 找出該symbol最近的today_date
+                dates = [doc["today_date"] for doc in recent_fundamental_docs if doc["symbol"] == fundamental["symbol"]]
+                if dates:
+                    latest_date = max(dates)
+                    fundamental["today_date"] = latest_date
+                    self.mongo_handler.upsert_doc(
+                        "fundamentals_of_top_list_symbols",
+                        {"symbol": fundamental["symbol"], "today_date": latest_date},
+                        fundamental
+                    )
+        time.sleep(1)
             
         #endregion
 
@@ -310,6 +334,7 @@ class DataHandler:
         #region 插入新的suggestions
         # Step 4: AI 新分析（若有）(AI analysis)
         self.news_fetcher = NewsFetcher()
+        time.sleep(1)
         new_suggestions = self.news_fetcher.get_symbols_news_and_analyze(symbols_to_analyze)
         for suggestion in new_suggestions:
             self.mongo_handler.upsert_doc(
@@ -385,7 +410,7 @@ class DataHandler:
 
         # 建立 symbol -> suggestion 映射
         suggestion_map = {s["symbol"]: s["suggestion"] for s in self.suggestions if "suggestion" in s}
-        sec_filing_analysis_map = {s["symbol"]: s["sec_filing_analysis"] for s in self.sec_filing_financial_analysis_results if "sec_filing_analysis" in s}
+        sec_filing_analysis_map = {s["Symbol"]: s["sec_filing_analysis"] for s in self.sec_filing_financial_analysis_results if "sec_filing_analysis" in s}
 
         # merged_data2: 每一筆 today 的資料都收集起來
         self.merged_fundamentals = []
@@ -434,7 +459,7 @@ class DataHandler:
             for entry in self.merged_fundamentals:
                 fundamental = entry['fundamental']
                 new_fundamentals.append(fundamental)
-                new_fundamentals.append(entry)
+                
         except:
             logger.warning("No fundamental found")	
         
