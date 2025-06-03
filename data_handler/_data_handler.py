@@ -24,35 +24,10 @@ ny_today = datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
 
 
 class SymbolMerger:
-    """
-    A utility class responsible for merging stock symbol data from different sources.
-    
-    This class takes data from fundamental analysis and price results and combines them
-    into a unified data structure for each symbol, ensuring consistency across all data points.
-    
-    Attributes:
-        all_keys (list): A comprehensive list of all possible data keys that might appear
-                        in the merged results.
-    """
     def __init__(self, all_keys):
         self.all_keys = all_keys
         
-
     def merge(self, list_of_symbols, fundamentals, price_results):
-        """
-        Merges data from different sources for each symbol in the provided list.
-        
-        Creates a comprehensive record for each symbol by combining fundamental data
-        and price data, using a consistent structure defined by all_keys.
-        
-        Args:
-            list_of_symbols (list): List of stock symbols to process
-            fundamentals (list): List of dictionaries containing fundamental data for symbols
-            price_results (list): List of dictionaries containing price-related data for symbols
-            
-        Returns:
-            list: A list of merged dictionaries, each containing all available data for a symbol
-        """
         # Create mappings from symbols to their respective data
         symbol_map_fundamentals = {item['symbol']: item for item in fundamentals if item.get('symbol')}
         symbol_map_prices = {item['symbol']: item for item in price_results if item.get('symbol')}
@@ -72,11 +47,6 @@ class SymbolMerger:
         return merged_results
 
 
-#region MAIN ENTRY
-"""
-MAIN ENTRY
-"""	
-
 class DataHandler:
     """
     Main class for handling stock data acquisition, processing, and analysis.
@@ -85,105 +55,50 @@ class DataHandler:
     to performing analysis, merging different data sources, and preparing results for
     consumption. It interfaces with multiple APIs and analysis tools to provide comprehensive
     stock information.
-    
-    The class can process individual symbols or lists of symbols, calculate short squeeze
-    potential, and combine analytical results with news data for holistic stock evaluations.
-    
-    Attributes:
-        fundamentals_fetcher: Service for retrieving stock fundamental data
-        fundamentals: List to store fundamental data for all processed symbols
-        suggestions: List to store news-based suggestions for symbols
-        merged_data: Dictionary containing the final merged data from all sources
-        analysis_results: Dictionary containing detailed analysis results
     """
+    
     def __init__(self):
         self.fundamentals_fetcher = FundamentalsFetcher()
         self.mongo_handler = MongoHandler()
         self.mongo_handler.create_collection('fundamentals_of_top_list_symbols')
+        self.news_fetcher = NewsFetcher()
+        self.squeeze_scanner = ShortSqueezeScanner()
+        
+        # Data storage attributes
         self.fundamentals = []
         self.suggestions = []
+        self.all_suggestions = []
         self.merged_data = {}
-        self.analysis_results = {}
-        
+        self.merged_fundamentals = []
+        self.sec_filing_financial_analysis_results = []
+        self.list_of_symbols = []
 
     def get_fundamentals(self, symbol):
-        """
-        Fetches fundamental data for a single symbol.
-        
-        Args:
-            symbol (str): The stock symbol to fetch data for
-            
-        Returns:
-            dict: Fundamental data for the requested symbol
-        """
+        """Get fundamental data for a single symbol."""
         return self.fundamentals_fetcher.fetch(symbol)
     
     def get_list_of_fundamentals(self, list_of_symbols):
-        """
-        Fetches fundamental data for multiple symbols.
-        
-        Args:
-            list_of_symbols (list): List of stock symbols to fetch data for
-            
-        Returns:
-            list: List of dictionaries containing fundamental data for each symbol
-        """
+        """Get fundamental data for multiple symbols."""
         return self.fundamentals_fetcher.fetch_symbols(list_of_symbols)
-    
 
-    def handle_symbol(self, symbol):
-        """
-        Processes a single symbol to get chart and price-related data.
-        
-        Uses the ChartAnalyzer to get price and chart data for a specific symbol,
-        then outputs the result in a formatted JSON.
-        
-        Args:
-            symbol (str): The stock symbol to analyze
-            
-        Returns:
-            dict: Chart and price analysis results for the symbol
-        """
+    def get_analyzer_data(self, symbol):
+        """Get chart analysis data for a single symbol."""
         print(f"\n\n====================Getting chart data for symbol: {symbol}====================")  
         analyzer = ChartAnalyzer(symbol)
         result = analyzer.run()
-        #print(json_util.dumps(result, indent=2, ensure_ascii=False))
         return result
 
-    def handle_symbols(self, list_of_symbols):
-        """
-        Processes multiple symbols to collect price data, fundamental data,
-        and perform short squeeze analysis.
-        
-        This method coordinates the collection of different types of data for each symbol
-        and merges them into a unified data structure. It also performs short squeeze
-        potential analysis on each symbol.
-        
-        Args:
-            list_of_symbols (list): List of stock symbols to process
-            
-        Returns:
-            list: A list of dictionaries containing comprehensive data for each symbol
-        """
-        self.squeeze_scanner = ShortSqueezeScanner()
-        
-        # Process price data
-        price_results = []
+    def get_price_analyzer_results(self, list_of_symbols):
+        """Get price analysis results for multiple symbols."""
+        price_analyzer_results = []
         for symbol in list_of_symbols:
-            result = self.handle_symbol(symbol)
-            price_results.append(result)
+            result = self.get_analyzer_data(symbol)
+            price_analyzer_results.append(result)
+        return price_analyzer_results
 
-            
-
-
-        #print(f"\n\n\n\n\nHandle Symbols: Price results (Raw): {price_results}")
-
-        # Process fundamental data
-        fundamentals = self.get_list_of_fundamentals(list_of_symbols)
-
-        
-
-        # Define all possible fields (can be expanded)
+    def merge_fundamentals_and_price_data(self, list_of_symbols, fundamentals, price_analyzer_results):
+        """Merge fundamental data with price analysis data."""
+        # Define all possible fields
         all_keys = [
             'symbol', 'name', 'listingExchange', 'securityType', 'countryDomicile', 'countryIncorporation',
             'isin', 'sector', 'industry', 'lastSplitInfo', 'lastSplitDate', 'lotSize', 'optionable',
@@ -196,17 +111,15 @@ class DataHandler:
             'most_volume_high', 'most_volume_low'
         ]
 
-        # Merge data
         merger = SymbolMerger(all_keys)
-        self.fundamentals = merger.merge(list_of_symbols, fundamentals, price_results)
+        return merger.merge(list_of_symbols, fundamentals, price_analyzer_results)
 
-        logger.info (f"Fundamentals Lengths: {len(self.fundamentals)}")
-
-        #region Short Squeeze Scan
+    def perform_short_squeeze_analysis(self):
+        """Perform short squeeze analysis on fundamental data."""
         logger.info("Starting Short Squeeze Analysis")
         list_of_short_squeeze_results = []
+        
         for fundamental in self.fundamentals:
-            
             short_squeeze_results = self.squeeze_scanner.run(
                 new_stock_data=fundamental,
                 current_price=fundamental['day_close'],
@@ -217,76 +130,36 @@ class DataHandler:
             list_of_short_squeeze_results.append(short_squeeze_results)
             self.squeeze_scanner.print_readable_analysis()
 
-        logger.info (f"list_of_short_squeeze_results Lengths: {len(list_of_short_squeeze_results)}")
-
-        self.fundamentals = merger.merge(list_of_symbols, self.fundamentals, list_of_short_squeeze_results)
-
+        logger.info(f"list_of_short_squeeze_results Lengths: {len(list_of_short_squeeze_results)}")
+        
+        # Merge short squeeze results back
+        merger = SymbolMerger([])  # Will be updated in merge method
+        self.fundamentals = merger.merge(self.list_of_symbols, self.fundamentals, list_of_short_squeeze_results)
+        
         return self.fundamentals
-    
-    def get_positions(self):
-        """
-        Placeholder for retrieving current positions from trading account.
-        This method is not yet implemented.
-        """
-        pass
 
-    def get_accounts(self):
-        """
-        Placeholder for retrieving account information.
-        This method is not yet implemented.
-        """
-        pass
-
-
-    def print_readable_suggestions(self, suggestions: list[dict]):
-        """
-        Prints suggestions in a human-readable format.
+    def handle_symbols(self, list_of_symbols):
+        """Process symbols to get fundamentals, price data, and short squeeze analysis."""
+        # Get price analysis results
+        price_analyzer_results = self.get_price_analyzer_results(list_of_symbols)
         
-        Takes a list of suggestion dictionaries and formats them for easy reading,
-        displaying the symbol and corresponding suggestion.
+        # Get fundamental data
+        fundamentals = self.get_list_of_fundamentals(list_of_symbols)
         
-        Args:
-            suggestions (list): List of dictionaries containing suggestions for symbols
-        """
-        for item in suggestions:
-            symbol = item.get("symbol", "Unknown symbol")
-            suggestion = item.get("suggestion", "(No suggestion content)")
-
-            print("====================================")
-            print(f"📌 Suggestion for {symbol}:\n\n")
-            print(suggestion)
-            print("\n")  # Empty line for separation
-
-    
-
-    #region Run
-    def run(self, list_of_symbols):
-        logger.info(f"Running DataHandler with symbols: {list_of_symbols}")
-        """
-        Main execution method that orchestrates the entire data collection and analysis process.
+        # Merge fundamental and price data
+        self.fundamentals = self.merge_fundamentals_and_price_data(list_of_symbols, fundamentals, price_analyzer_results)
         
-        This method coordinates fetching fundamental data, price data, news, and performs
-        SEC filings analysis. It then merges all the collected data into a unified structure
-        for each symbol and returns the comprehensive results.
+        logger.info(f"Fundamentals Lengths: {len(self.fundamentals)}")
         
-        Args:
-            list_of_symbols (list): List of stock symbols to process
-            
-        Returns:
-            tuple: A tuple containing (merged_data, analysis_results)
-                  - merged_data: Dictionary with combined data for each symbol
-                  - analysis_results: Dictionary with detailed analysis results
-        """
-        self.list_of_symbols = list_of_symbols
-        #self.handle_symbols(list_of_symbols)
+        # Perform short squeeze analysis
+        return self.perform_short_squeeze_analysis()
 
-        #region Fundamentals Collection
-        # Step 1: 拿最新的 fundamentals, get the latest fundamentals
-        self.fundamentals = self.handle_symbols(self.list_of_symbols)
+    def store_fundamentals_in_db(self):
+        """Store or update fundamental data in MongoDB."""
         ny_time = datetime.now(ZoneInfo("America/New_York"))
         date_list = [(ny_time - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
 
-        # 查詢最近7天有fundamental的symbol
+        # Query recent fundamental documents
         recent_fundamental_docs = self.mongo_handler.find_doc(
             "fundamentals_of_top_list_symbols",
             {
@@ -296,10 +169,9 @@ class DataHandler:
         )
         recent_symbols = set(doc["symbol"] for doc in recent_fundamental_docs)
 
-        
+        # Update fundamentals with recent dates and store in DB
         for fundamental in self.fundamentals:
             if fundamental["symbol"] in recent_symbols:
-                # 找出該symbol最近的today_date
                 dates = [doc["today_date"] for doc in recent_fundamental_docs if doc["symbol"] == fundamental["symbol"]]
                 if dates:
                     latest_date = max(dates)
@@ -310,53 +182,52 @@ class DataHandler:
                         fundamental
                     )
         time.sleep(1)
-            
-        #endregion
 
-
-        #region Find Suggestion
-        # Step 2: 拿所有已有的 suggestions，不管是不是今天才分析 (get existing suggestions)
+    def get_existing_suggestions(self):
+        """Get existing suggestions from MongoDB."""
         existing_suggestions = self.mongo_handler.find_doc(
             "fundamentals_of_top_list_symbols",
             {"symbol": {"$in": self.list_of_symbols}, 
              "today_date": ny_today,
-             
              "suggestion": {"$exists": True}}
         )
+        return existing_suggestions
 
-
-        #region Filter new symbols
-        # Step 3: 找出還沒分析的 symbols (find unanalyzed symbols)
+    def analyze_new_symbols_for_suggestions(self, existing_suggestions):
+        """Analyze symbols that haven't been analyzed yet for suggestions."""
+        # Find unanalyzed symbols
         analyzed_symbols = {doc["symbol"] for doc in existing_suggestions}
         symbols_to_analyze = [s for s in self.list_of_symbols if s not in analyzed_symbols]
 
-
-        #region 插入新的suggestions
-        # Step 4: AI 新分析（若有）(AI analysis)
-        self.news_fetcher = NewsFetcher()
-        time.sleep(1)
-        new_suggestions = self.news_fetcher.get_symbols_news_and_analyze(symbols_to_analyze)
-        for suggestion in new_suggestions:
-            self.mongo_handler.upsert_doc(
-                "fundamentals_of_top_list_symbols", 
-                {"symbol": suggestion["symbol"], "today_date": ny_today}, 
-                {"suggestion":suggestion["suggestion"]}
-                )
+        # Get AI analysis for new symbols
+        new_suggestions = []
+        if symbols_to_analyze:
+            time.sleep(1)
+            new_suggestions = self.news_fetcher.get_symbols_news_and_analyze(symbols_to_analyze)
             
-        # Step 5: 合併新的和舊的 suggestion (merge suggestions)
-        self.all_suggestions = existing_suggestions + new_suggestions
+            # Store new suggestions in DB
+            for suggestion in new_suggestions:
+                self.mongo_handler.upsert_doc(
+                    "fundamentals_of_top_list_symbols", 
+                    {"symbol": suggestion["symbol"], "today_date": ny_today}, 
+                    {"suggestion": suggestion["suggestion"]}
+                )
         
-        # Step 6: 合併資料 (merge data)
+        return new_suggestions
+
+    def merge_all_suggestions(self, existing_suggestions, new_suggestions):
+        """Merge existing and new suggestions."""
+        self.all_suggestions = existing_suggestions + new_suggestions
+        self.suggestions = self.all_suggestions
+        
+        # Merge data by symbol
         self.merger = DataMerge(self.fundamentals, self.all_suggestions, self.list_of_symbols)
         self.merged_data = self.merger.merge_data_by_symbol()
         
+        return self.all_suggestions
 
-        # Step 7: 印出建議和合併資料 (print readable suggestions and merged data)
-        self.print_readable_suggestions(new_suggestions)
-        #print(json.dumps(self.merged_data, indent=2, ensure_ascii=False, default=str))
-
-
-        # Step 8: 拿所有已有的分析 (get existing analysis results)
+    def get_existing_sec_analysis(self):
+        """Get existing SEC filing analysis from MongoDB."""
         already_analyzed_docs = self.mongo_handler.find_doc(
             "fundamentals_of_top_list_symbols",
             {
@@ -366,20 +237,21 @@ class DataHandler:
             }
         )
         already_analyzed_symbols = set(doc["symbol"] for doc in already_analyzed_docs)
+        return already_analyzed_symbols
 
-
-        # Step 9: 找出還沒分析的 symbols
+    def perform_sec_filing_analysis(self, already_analyzed_symbols):
+        """Perform SEC filing analysis for unanalyzed symbols."""
+        # Find symbols that need analysis
         symbols_to_analyze = [s for s in self.list_of_symbols if s not in already_analyzed_symbols]
 
-        # Step 10: 對未分析的 symbols 做 SEC filings analysis
-        self.sec_filing_financial_analysis_results = []
+        sec_filing_results = []
         if symbols_to_analyze:
-            self.analyzer = SECFinancialAnalyzer()
-            self.analyzer.SYMBOL_LIST = symbols_to_analyze
-            self.sec_filing_financial_analysis_results = self.analyzer.run_analysis()
+            analyzer = SECFinancialAnalyzer()
+            analyzer.SYMBOL_LIST = symbols_to_analyze
+            sec_filing_results = analyzer.run_analysis()
 
-            # Step 11: 把分析結果 update 到相對應 symbol 的 document 中
-            for analysis_result in self.sec_filing_financial_analysis_results:
+            # Store analysis results in DB
+            for analysis_result in sec_filing_results:
                 symbol = analysis_result["Symbol"]
                 self.mongo_handler.upsert_doc(
                     "fundamentals_of_top_list_symbols",
@@ -387,19 +259,11 @@ class DataHandler:
                     {"sec_filing_analysis": analysis_result}
                 )
         
-        """ # Step 12: 建立 merged_data2：在 merged_data 基礎上加入 sec_filing_analysis
-        merged_data2 = []
-        for entry in self.merged_data:
-            symbol = entry["symbol"]
-            doc = self.mongo_handler.find_doc(
-                "fundamentals_of_top_list_symbols",
-                {"symbol": symbol, "today_date": ny_today}
-            )
-            if doc and "sec_filing_analysis" in doc:
-                entry["sec_filing_analysis"] = doc["sec_filing_analysis"]
-            merged_data2.append(entry) """
+        return sec_filing_results
 
-        # 先從 DB 撈出所有今天的資料（有可能是 full list）
+    def build_final_merged_data(self):
+        """Build the final merged data structure from all sources."""
+        # Get all today's fundamental documents
         today_fundamentals_docs = self.mongo_handler.find_doc(
             "fundamentals_of_top_list_symbols",
             {
@@ -408,11 +272,11 @@ class DataHandler:
             }
         )
 
-        # 建立 symbol -> suggestion 映射
+        # Create mapping dictionaries
         suggestion_map = {s["symbol"]: s["suggestion"] for s in self.suggestions if "suggestion" in s}
         sec_filing_analysis_map = {s["Symbol"]: s["sec_filing_analysis"] for s in self.sec_filing_financial_analysis_results if "sec_filing_analysis" in s}
 
-        # merged_data2: 每一筆 today 的資料都收集起來
+        # Build merged fundamentals
         self.merged_fundamentals = []
         for doc in today_fundamentals_docs:
             symbol = doc["symbol"]
@@ -421,76 +285,98 @@ class DataHandler:
                 "fundamental": doc,
             }
 
-            # 加入 suggestion（如果有）
+            # Add suggestion if available
             if symbol in suggestion_map:
                 merged["suggestion"] = suggestion_map[symbol]
 
-            
+            # Add SEC filing analysis if available
             if symbol in sec_filing_analysis_map:
                 merged["sec_filing_analysis"] = sec_filing_analysis_map[symbol]
-           
 
             self.merged_fundamentals.append(merged)
 
+        return self.merged_fundamentals
 
-
-        
-
-        #print("""\n\n\nMerged Fundamentals Data:""")
-        #print("""Merged Fundamentals Data: Hidden""")
-        #print(json.dumps(self.merged_data, indent=2, ensure_ascii=False, default=str))
-
-        #print("""\nAnalysis Results:""")
-        #print("""Analysis Results: Hidden\n\n""")
-        #print(json.dumps(self.analysis_results, indent=2, ensure_ascii=False, default=str))
-
-        #print(self.merged_fundamentals)
+    def extract_final_results(self):
+        """Extract and format final results."""
+        # Extract SEC filing analysis results
         new_filing_financial_analysis_results = []
-        try: 
+        try:
             for entry in self.merged_fundamentals:
-                sec_filing_analysis = entry['fundamental']["sec_filing_analysis"]
-                new_filing_financial_analysis_results.append(sec_filing_analysis)
-        except:
-            logger.warning("No sec_filing_analysis found")
-        
+                sec_filing_analysis = entry['fundamental'].get('sec_filing_analysis')
+                if sec_filing_analysis:
+                    new_filing_financial_analysis_results.append(sec_filing_analysis)
+        except Exception as e:
+            logger.warning(f"Error extracting sec_filing_analysis: {e}")
 
+        # Extract fundamentals
         new_fundamentals = []
         try:
             for entry in self.merged_fundamentals:
                 fundamental = entry['fundamental']
                 new_fundamentals.append(fundamental)
-                
-        except:
-            logger.warning("No fundamental found")	
-        
+        except Exception as e:
+            logger.warning(f"Error extracting fundamentals: {e}")
 
         return new_fundamentals, new_filing_financial_analysis_results
 
+    def print_readable_suggestions(self, suggestions: list[dict]):
+        """Print suggestions in a human-readable format."""
+        for item in suggestions:
+            symbol = item.get("symbol", "Unknown symbol")
+            suggestion = item.get("suggestion", "(No suggestion content)")
 
+            print("====================================")
+            print(f"📌 Suggestion for {symbol}:\n\n")
+            print(suggestion)
+            print("\n")
 
-#region MAIN ENTRY 
-if __name__ == "__main__":
-    list_of_symbols =  ['FOXO', 'KTTA', 'MRIN']
+    def get_positions(self):
+        """Placeholder for retrieving current positions from trading account."""
+        pass
 
-    data_handler = DataHandler()
-    #data_handler.run(list_of_symbols)
-    data_handler.get_list_of_fundamentals(list_of_symbols)
-    
+    def get_accounts(self):
+        """Placeholder for retrieving account information."""
+        pass
 
-
-    
-
-    """  bot = TelegramBot()
-    message = bot.format_table_for_telegram(
-        title="Today's Hot Stocks",
-        headers=["Symbol", "Name", "Change"],
-        data=[
-            {"Symbol": "TSLA", "Name": "Tesla", "Change": "+5.6%"},
-            {"Symbol": "AAPL", "Name": "Apple", "Change": "+2.3%"}
-        ]
-    )
-    bot.send_telegram_message(message)
-    
-
-
-     """
+    def run(self, list_of_symbols):
+        """
+        Main execution method that orchestrates the entire data processing pipeline.
+        
+        Args:
+            list_of_symbols (list): List of stock symbols to analyze
+            
+        Returns:
+            tuple: (new_fundamentals, new_filing_financial_analysis_results)
+        """
+        logger.info(f"Running DataHandler with symbols: {list_of_symbols}")
+        
+        self.list_of_symbols = list_of_symbols
+        
+        # Step 1: Process symbols and get fundamentals with analysis
+        self.fundamentals = self.handle_symbols(self.list_of_symbols)
+        
+        # Step 2: Store fundamentals in database
+        self.store_fundamentals_in_db()
+        
+        # Step 3: Handle suggestions
+        existing_suggestions = self.get_existing_suggestions()
+        new_suggestions = self.analyze_new_symbols_for_suggestions(existing_suggestions)
+        self.merge_all_suggestions(existing_suggestions, new_suggestions)
+        
+        # Step 4: Print new suggestions
+        self.print_readable_suggestions(new_suggestions)
+        
+        # Step 5: Handle SEC filing analysis
+        already_analyzed_symbols = self.get_existing_sec_analysis()
+        self.sec_filing_financial_analysis_results = self.perform_sec_filing_analysis(already_analyzed_symbols)
+        
+        # Step 6: Build final merged data
+        self.build_final_merged_data()
+        
+        # Step 7: Extract and return final results
+        new_fundamentals, new_filing_financial_analysis_results = self.extract_final_results()
+        
+        logger.info(f"Processing completed. Returning {len(new_fundamentals)} fundamentals and {len(new_filing_financial_analysis_results)} SEC analyses.")
+        
+        return new_fundamentals, new_filing_financial_analysis_results

@@ -13,11 +13,11 @@ from bson import json_util
 load_dotenv(override=True)
 
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-
-ny_time = datetime.now(ZoneInfo("America/New_York"))
+NY_TZ = ZoneInfo("America/New_York")
+ny_time = datetime.now(NY_TZ)
 today_str = ny_time.strftime('%Y-%m-%d')
 
 from program_starter.class_zeropro_starter import logger
@@ -68,8 +68,9 @@ class MongoHandler:
         if collection_name not in self.db.list_collection_names():
             return None
         try:
-            # 加入今天日期
-            doc["today_date"] = datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
+            # 使用带时区的日期时间
+            doc["today_date"] = datetime.now(NY_TZ).strftime('%Y-%m-%d')
+            doc["created_at"] = datetime.now(timezone.utc)
             result = self.db[collection_name].insert_one(doc)
             return result.inserted_id
         except Exception as e:
@@ -106,8 +107,9 @@ class MongoHandler:
             return None
 
         try:
-            # 加入今天日期
-            new_data["today_date"] = datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
+            # 使用带时区的日期时间
+            new_data["today_date"] = datetime.now(NY_TZ).strftime('%Y-%m-%d')
+            new_data["updated_at"] = datetime.now(timezone.utc)
 
             result = self.db[collection_name].update_one(
                 filter=query_keys,
@@ -131,7 +133,8 @@ class MongoHandler:
             return None
 
         try:
-            today_str = datetime.now(ZoneInfo("America/New_York")).strftime('%Y-%m-%d')
+            # 使用带时区的日期时间
+            today_str = datetime.now(NY_TZ).strftime('%Y-%m-%d')
             query = {"today_date": today_str}
 
             existing_doc = self.db[collection_name].find_one(query)
@@ -145,7 +148,8 @@ class MongoHandler:
                 filter=query,
                 update={"$set": {
                     "today_date": today_str,
-                    "top_list": combined_list
+                    "top_list": combined_list,
+                    "updated_at": datetime.now(timezone.utc)
                 }},
                 upsert=True
             )
