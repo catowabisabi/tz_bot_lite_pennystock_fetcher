@@ -51,7 +51,7 @@ class PolygonController:
     def fmt(self, value):
         return round(value, 2) if isinstance(value, (int, float)) else value
 
-    def get_top_gainers_data(self): # get top gainers clean data
+    def get_top_gainers_data(self, debug = False): # get top gainers clean data
         logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: Starting to get top gainers clean data")
         self.top_gainers_data = []
         for item in self.get_top_gainers():
@@ -91,98 +91,59 @@ class PolygonController:
         pd.set_option('display.max_columns', None)  # 顯示所有欄位
         print(df.to_string(index=False))
 
+
+        if debug:
+            logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: 1st Top Gainers Price Data: {str(self.top_gainers_data[0])}\n")
+        print()   
+
         return self.top_gainers_data
 
 
 
 
-
-    
-
-
-#region MAIN
+mongo_handler = MongoHandler()
 
 
 
-
-
-def main(debug = False):
-
-    #region Setting up Date
-    ny_time = datetime.now(ZoneInfo("America/New_York"))
-    today_str = ny_time.strftime('%Y-%m-%d')
-    yesterday = ny_time - timedelta(days=1)
-    yesterday_str = yesterday.strftime('%Y-%m-%d')
-
-
+def setup_mongo():
     #region Setting up Mongo
     # Create Collections and Check if Top Gainers are already in MongoDB
     logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: Setting up MongoDB")
-    mongo_handler = MongoHandler()
+    
     today_top_list_doc_name = "today_top_list"
     mongo_handler.create_collection(today_top_list_doc_name)
     mongo_handler.create_collection("fundamentals_of_top_list_symbols")
-    today_top_list = mongo_handler.find_doc(today_top_list_doc_name, {'today_date': today_str})
     
-    if len(today_top_list) > 0:
-        logger.info(f"Today Top Gainers in Database Found:            {today_top_list[0]['top_list']}")
-        logger.info(f"Number of Fundamentals in Database Found:       {len(mongo_handler.find_doc("fundamentals_of_top_list_symbols", {'today_date': today_str}))}")
-    else:
-        logger.info(f"Today Top Gainers Not Found")
+    
 
+    
+#region MAIN
+def main(debug = False):
+    setup_mongo()
 
     #region Get Top Gainers
     polygon_controller = PolygonController()
-    top_gainers_price_data = polygon_controller.get_top_gainers_data()
+    top_gainers_price_data = polygon_controller.get_top_gainers_data(debug=debug)
     
-    if debug:
-        logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: 1st Top Gainers Price Data: {str(top_gainers_price_data[0])}\n")
-    print()
     
-
-
     # get top gainers symbols
     top_gainers_symbols = [item['Ticker'] for item in top_gainers_price_data]
     logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: Top Gainers Symbols: {str(top_gainers_symbols)}\n")
 
     # Filter symbols by Today_Close > 1 and < 10, Today_Volume > 100,000, Change_% > 50
     filtered_top_gainers_symbols = [item['Ticker'] for item in top_gainers_price_data if item['Min_Close'] > 1 and item['Min_Close'] < 50  and item['Change_%'] > 50 and (len(item['Ticker']) <= 4)] #and item['Min_Volume'] > 100000
+    mongo_handler.upsert_top_list("today_top_list", filtered_top_gainers_symbols)
+    
     logger.info(f"{datetime.now(pytz.timezone('US/Eastern'))}: Filtered Top Gainers Symbols: {str(filtered_top_gainers_symbols)}\n")
 
 
     def clean_symbols(symbols):
-            # Remove non-alphabetic characters to clean up stock symbols
-            return [re.sub(r'[^A-Z]', '', symbol) for symbol in symbols]
+        # Remove non-alphabetic characters to clean up stock symbols
+        return [re.sub(r'[^A-Z]', '', symbol) for symbol in symbols]
 
 
     clean_filtered_top_gainers_symbols = clean_symbols(filtered_top_gainers_symbols) #['SBET', 'MBAVW', 'FAAS']
-
-    
-
-
-
-
-
-
-
-
-
-    """clean_filtered_top_gainers_symbols = clean_symbols(['HKD', 
-                                                        'LZMH',
-                                                        'PLRZ', 
-                                                        'KTTA',
-                                                        'MRIN', 
-                                                        'FOXO', 
-                                                        'CHEB']
-                                                        )#debug """
-
-
-
-
-
-
-
-
+    """clean_filtered_top_gainers_symbols = clean_symbols(['HKD', 'LZMH', 'PLRZ', 'KTTA', 'MRIN', 'FOXO', 'CHEB']) #debug """
 
 
 

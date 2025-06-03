@@ -345,6 +345,7 @@ class DataHandler:
             
         # Step 5: 合併新的和舊的 suggestion (merge suggestions)
         self.all_suggestions = existing_suggestions + new_suggestions
+        self.suggestions = self.all_suggestions
         
         # Step 6: 合併資料 (merge data)
         self.merger = DataMerge(self.fundamentals, self.all_suggestions, self.list_of_symbols)
@@ -448,7 +449,7 @@ class DataHandler:
         new_filing_financial_analysis_results = []
         try: 
             for entry in self.merged_fundamentals:
-                sec_filing_analysis = entry['fundamental']["sec_filing_analysis"]
+                sec_filing_analysis = entry['fundamental'].get('sec_filing_analysis')
                 new_filing_financial_analysis_results.append(sec_filing_analysis)
         except:
             logger.warning("No sec_filing_analysis found")
