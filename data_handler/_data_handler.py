@@ -49,12 +49,7 @@ class SymbolMerger:
 
 class DataHandler:
     """
-    Main class for handling stock data acquisition, processing, and analysis.
-    
-    This class orchestrates the entire data flow from fetching fundamentals and price data
-    to performing analysis, merging different data sources, and preparing results for
-    consumption. It interfaces with multiple APIs and analysis tools to provide comprehensive
-    stock information.
+    調試版本的 DataHandler - 添加詳細日誌以找出保存問題
     """
     
     def __init__(self):
@@ -64,14 +59,49 @@ class DataHandler:
         self.news_fetcher = NewsFetcher()
         self.squeeze_scanner = ShortSqueezeScanner()
         
-        # Data storage attributes
+        # 數據存儲屬性
         self.fundamentals = []
-        self.suggestions = []
-        self.all_suggestions = []
-        self.merged_data = {}
-        self.merged_fundamentals = []
-        self.sec_filing_financial_analysis_results = []
         self.list_of_symbols = []
+        self._db_cache = {}
+
+    def _get_db_documents(self, symbols=None, force_refresh=False):
+        """統一的數據庫文檔獲取方法，帶緩存機制"""
+        if symbols is None:
+            symbols = self.list_of_symbols
+            
+        cache_key = f"{'-'.join(sorted(symbols))}_{ny_today}"
+        
+        if not force_refresh and cache_key in self._db_cache:
+            logger.info(f"Using cached data for {len(symbols)} symbols")
+            return self._db_cache[cache_key]
+        
+        logger.info(f"Querying database for {len(symbols)} symbols on {ny_today}")
+        documents = self.mongo_handler.find_doc(
+            "fundamentals_of_top_list_symbols",
+            {
+                "symbol": {"$in": symbols},
+                "today_date": ny_today
+            }
+        )
+        
+        logger.info(f"Found {len(documents)} documents in database")
+        self._db_cache[cache_key] = documents
+        return documents
+
+    def check_merge_errors(self):
+        """檢查合併錯誤"""
+        error_data = self.mongo_handler.find_doc(
+            "fundamentals_of_top_list_symbols",
+            {"close_change_percentage": {"$exists": False}}
+        )
+        print(f"Length of error data: {len(error_data)}")
+        if len(error_data) > 0:
+            logger.warning(f"Error: 已找到 {len(error_data)} 個錯誤: Symbols: {error_data[0]['symbol']}")
+            logger.warning(f"Error in fundamental data for symbol: {error_data[0]['symbol']}")
+            logger.warning(f"退出程式")
+            exit()
+        logger.info(f"No errors in fundamental data")
+        return False
 
     def get_fundamentals(self, symbol):
         """Get fundamental data for a single symbol."""
@@ -132,32 +162,64 @@ class DataHandler:
 
         logger.info(f"list_of_short_squeeze_results Lengths: {len(list_of_short_squeeze_results)}")
         
-        # Merge short squeeze results back
-        merger = SymbolMerger([])  # Will be updated in merge method
-        self.fundamentals = merger.merge(self.list_of_symbols, self.fundamentals, list_of_short_squeeze_results)
+        # 優化的合併方法：直接字典更新
+        squeeze_results_map = {item['symbol']: item for item in list_of_short_squeeze_results if item.get('symbol')}
         
+        for fundamental_item in self.fundamentals:
+            symbol = fundamental_item.get('symbol')
+            if symbol and symbol in squeeze_results_map:
+                # 直接更新現有的 fundamental 字典，避免覆蓋重要字段
+                squeeze_data = squeeze_results_map[symbol].copy()
+                squeeze_data.pop('symbol', None)  # 移除 symbol 鍵避免重複
+                fundamental_item.update(squeeze_data)
+        
+        logger.info(f"Successfully merged short squeeze analysis for {len(squeeze_results_map)} symbols")
         return self.fundamentals
 
     def handle_symbols(self, list_of_symbols):
         """Process symbols to get fundamentals, price data, and short squeeze analysis."""
+        logger.info(f"處理 {len(list_of_symbols)} 個符號的數據")
+        
         # Get price analysis results
         price_analyzer_results = self.get_price_analyzer_results(list_of_symbols)
+        logger.info(f"獲取到 {len(price_analyzer_results)} 個價格分析結果")
         
         # Get fundamental data
         fundamentals = self.get_list_of_fundamentals(list_of_symbols)
+        logger.info(f"獲取到 {len(fundamentals)} 個基本面數據")
         
         # Merge fundamental and price data
         self.fundamentals = self.merge_fundamentals_and_price_data(list_of_symbols, fundamentals, price_analyzer_results)
+        logger.info(f"合併後的基本面數據長度: {len(self.fundamentals)}")
         
-        logger.info(f"Fundamentals Lengths: {len(self.fundamentals)}")
+        # 檢查合併後數據的結構
+        if self.fundamentals:
+            sample_keys = list(self.fundamentals[0].keys())
+            logger.info(f"樣本數據字段: {sample_keys[:10]}...")  # 只顯示前10個字段
         
         # Perform short squeeze analysis
         return self.perform_short_squeeze_analysis()
 
     def store_fundamentals_in_db(self):
-        """Store or update fundamental data in MongoDB."""
+        """Store or update fundamental data in MongoDB - 添加詳細調試信息"""
+        logger.info(f"開始保存 {len(self.fundamentals)} 個基本面數據到數據庫")
+        
+        # 檢查數據完整性
+        for i, fundamental in enumerate(self.fundamentals):
+            if not fundamental.get('symbol'):
+                logger.error(f"第 {i} 個基本面數據缺少 symbol 字段: {fundamental}")
+                continue
+            
+            # 檢查是否有必要的價格數據
+            required_fields = ['day_close', 'close_change_percentage']
+            missing_fields = [field for field in required_fields if field not in fundamental or fundamental[field] is None]
+            if missing_fields:
+                logger.warning(f"Symbol {fundamental['symbol']} 缺少字段: {missing_fields}")
+        
         ny_time = datetime.now(ZoneInfo("America/New_York"))
         date_list = [(ny_time - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
+        
+        logger.info(f"查詢最近 7 天的數據: {date_list}")
 
         # Query recent fundamental documents
         recent_fundamental_docs = self.mongo_handler.find_doc(
@@ -167,158 +229,190 @@ class DataHandler:
                 "today_date": {"$in": date_list}
             }
         )
+        
+        logger.info(f"找到 {len(recent_fundamental_docs)} 個最近的基本面文檔")
         recent_symbols = set(doc["symbol"] for doc in recent_fundamental_docs)
+        
+        # 保存計數器
+        saved_count = 0
+        updated_count = 0
 
         # Update fundamentals with recent dates and store in DB
         for fundamental in self.fundamentals:
-            if fundamental["symbol"] in recent_symbols:
-                dates = [doc["today_date"] for doc in recent_fundamental_docs if doc["symbol"] == fundamental["symbol"]]
+            symbol = fundamental["symbol"]
+            
+            if symbol in recent_symbols:
+                # 查找該符號的最新日期
+                dates = [doc["today_date"] for doc in recent_fundamental_docs if doc["symbol"] == symbol]
                 if dates:
                     latest_date = max(dates)
                     fundamental["today_date"] = latest_date
-                    self.mongo_handler.upsert_doc(
+                    logger.info(f"更新 {symbol} 的數據，日期: {latest_date}")
+                    
+                    # 執行 upsert 操作
+                    try:
+                        result = self.mongo_handler.upsert_doc(
+                            "fundamentals_of_top_list_symbols",
+                            {"symbol": symbol, "today_date": latest_date},
+                            fundamental
+                        )
+                        logger.info(f"Upsert {symbol} 結果: {result}")
+                        updated_count += 1
+                    except Exception as e:
+                        logger.error(f"保存 {symbol} 時出錯: {e}")
+            else:
+                # 新數據，使用今天的日期
+                fundamental["today_date"] = ny_today
+                logger.info(f"新增 {symbol} 的數據，日期: {ny_today}")
+                
+                try:
+                    result = self.mongo_handler.upsert_doc(
                         "fundamentals_of_top_list_symbols",
-                        {"symbol": fundamental["symbol"], "today_date": latest_date},
+                        {"symbol": symbol, "today_date": ny_today},
                         fundamental
                     )
+                    logger.info(f"Upsert {symbol} 結果: {result}")
+                    saved_count += 1
+                except Exception as e:
+                    logger.error(f"保存 {symbol} 時出錯: {e}")
+        
+        logger.info(f"數據庫操作完成: 新增 {saved_count} 個，更新 {updated_count} 個")
+        
+        # 驗證保存結果
         time.sleep(1)
-
-    def get_existing_suggestions(self):
-        """Get existing suggestions from MongoDB."""
-        existing_suggestions = self.mongo_handler.find_doc(
-            "fundamentals_of_top_list_symbols",
-            {"symbol": {"$in": self.list_of_symbols}, 
-             "today_date": ny_today,
-             "suggestion": {"$exists": True}}
-        )
-        return existing_suggestions
-
-    def analyze_new_symbols_for_suggestions(self, existing_suggestions):
-        """Analyze symbols that haven't been analyzed yet for suggestions."""
-        # Find unanalyzed symbols
-        analyzed_symbols = {doc["symbol"] for doc in existing_suggestions}
-        symbols_to_analyze = [s for s in self.list_of_symbols if s not in analyzed_symbols]
-
-        # Get AI analysis for new symbols
-        new_suggestions = []
-        if symbols_to_analyze:
-            time.sleep(1)
-            new_suggestions = self.news_fetcher.get_symbols_news_and_analyze(symbols_to_analyze)
-            
-            # Store new suggestions in DB
-            for suggestion in new_suggestions:
-                self.mongo_handler.upsert_doc(
-                    "fundamentals_of_top_list_symbols", 
-                    {"symbol": suggestion["symbol"], "today_date": ny_today}, 
-                    {"suggestion": suggestion["suggestion"]}
-                )
-        
-        return new_suggestions
-
-    def merge_all_suggestions(self, existing_suggestions, new_suggestions):
-        """Merge existing and new suggestions."""
-        self.all_suggestions = existing_suggestions + new_suggestions
-        self.suggestions = self.all_suggestions
-        
-        # Merge data by symbol
-        self.merger = DataMerge(self.fundamentals, self.all_suggestions, self.list_of_symbols)
-        self.merged_data = self.merger.merge_data_by_symbol()
-        
-        return self.all_suggestions
-
-    def get_existing_sec_analysis(self):
-        """Get existing SEC filing analysis from MongoDB."""
-        already_analyzed_docs = self.mongo_handler.find_doc(
+        verification_docs = self.mongo_handler.find_doc(
             "fundamentals_of_top_list_symbols",
             {
-                "symbol": {"$in": self.list_of_symbols},
-                "today_date": ny_today,
-                "sec_filing_analysis": {"$exists": True}
-            }
-        )
-        already_analyzed_symbols = set(doc["symbol"] for doc in already_analyzed_docs)
-        return already_analyzed_symbols
-
-    def perform_sec_filing_analysis(self, already_analyzed_symbols):
-        """Perform SEC filing analysis for unanalyzed symbols."""
-        # Find symbols that need analysis
-        symbols_to_analyze = [s for s in self.list_of_symbols if s not in already_analyzed_symbols]
-
-        sec_filing_results = []
-        if symbols_to_analyze:
-            analyzer = SECFinancialAnalyzer()
-            analyzer.SYMBOL_LIST = symbols_to_analyze
-            sec_filing_results = analyzer.run_analysis()
-
-            # Store analysis results in DB
-            for analysis_result in sec_filing_results:
-                symbol = analysis_result["Symbol"]
-                self.mongo_handler.upsert_doc(
-                    "fundamentals_of_top_list_symbols",
-                    {"symbol": symbol, "today_date": ny_today},
-                    {"sec_filing_analysis": analysis_result}
-                )
-        
-        return sec_filing_results
-
-    def build_final_merged_data(self):
-        """Build the final merged data structure from all sources."""
-        # Get all today's fundamental documents
-        today_fundamentals_docs = self.mongo_handler.find_doc(
-            "fundamentals_of_top_list_symbols",
-            {
-                "symbol": {"$in": self.list_of_symbols},
+                "symbol": {"$in": [f["symbol"] for f in self.fundamentals]},
                 "today_date": ny_today
             }
         )
+        logger.info(f"驗證: 數據庫中找到 {len(verification_docs)} 個今日文檔")
+        
+        # 檢查是否所有數據都已保存
+        saved_symbols = set(doc["symbol"] for doc in verification_docs)
+        missing_symbols = set(f["symbol"] for f in self.fundamentals) - saved_symbols
+        if missing_symbols:
+            logger.error(f"以下符號的數據未能保存到數據庫: {missing_symbols}")
+        else:
+            logger.info("所有基本面數據已成功保存到數據庫")
 
-        # Create mapping dictionaries
-        suggestion_map = {s["symbol"]: s["suggestion"] for s in self.suggestions if "suggestion" in s}
-        sec_filing_analysis_map = {s["Symbol"]: s["sec_filing_analysis"] for s in self.sec_filing_financial_analysis_results if "sec_filing_analysis" in s}
+    def process_suggestions(self):
+        """統一處理建議的方法"""
+        logger.info("Processing suggestions...")
+        
+        # 獲取數據庫中已有建議的文檔
+        documents = self._get_db_documents()
+        existing_suggestions_symbols = {
+            doc["symbol"] for doc in documents 
+            if doc.get("suggestion")
+        }
+        
+        logger.info(f"找到 {len(existing_suggestions_symbols)} 個已有建議的符號")
+        
+        # 找出需要分析的新符號
+        symbols_to_analyze = [
+            symbol for symbol in self.list_of_symbols 
+            if symbol not in existing_suggestions_symbols
+        ]
+        
+        # 為新符號獲取AI分析
+        if symbols_to_analyze:
+            logger.info(f"正在為 {len(symbols_to_analyze)} 個新符號分析建議")
+            time.sleep(1)
+            new_suggestions = self.news_fetcher.get_symbols_news_and_analyze(symbols_to_analyze)
+            
+            # 直接更新到數據庫，不保存副本
+            for suggestion in new_suggestions:
+                try:
+                    result = self.mongo_handler.upsert_doc(
+                        "fundamentals_of_top_list_symbols", 
+                        {"symbol": suggestion["symbol"], "today_date": ny_today}, 
+                        {"suggestion": suggestion["suggestion"]}
+                    )
+                    logger.info(f"保存建議 {suggestion['symbol']}: {result}")
+                except Exception as e:
+                    logger.error(f"保存建議 {suggestion['symbol']} 時出錯: {e}")
+            
+            # 刷新緩存
+            self._get_db_documents(force_refresh=True)
+            
+            # 打印新建議
+            self.print_readable_suggestions(new_suggestions)
+            
+            return len(new_suggestions)
+        
+        logger.info("No new symbols need suggestion analysis")
+        return 0
 
-        # Build merged fundamentals
-        self.merged_fundamentals = []
-        for doc in today_fundamentals_docs:
-            symbol = doc["symbol"]
-            merged = {
-                "symbol": symbol,
-                "fundamental": doc,
-            }
+    def process_sec_analysis(self):
+        """統一處理SEC分析的方法"""
+        logger.info("Processing SEC filing analysis...")
+        
+        # 獲取已有SEC分析的符號
+        documents = self._get_db_documents()
+        analyzed_symbols = {
+            doc["symbol"] for doc in documents 
+            if doc.get("sec_filing_analysis")
+        }
+        
+        logger.info(f"找到 {len(analyzed_symbols)} 個已有SEC分析的符號")
+        
+        # 找出需要分析的符號
+        symbols_to_analyze = [
+            symbol for symbol in self.list_of_symbols 
+            if symbol not in analyzed_symbols
+        ]
+        
+        if symbols_to_analyze:
+            logger.info(f"正在為 {len(symbols_to_analyze)} 個符號分析SEC文件")
+            analyzer = SECFinancialAnalyzer()
+            analyzer.SYMBOL_LIST = symbols_to_analyze
+            analysis_results = analyzer.run_analysis()
 
-            # Add suggestion if available
-            if symbol in suggestion_map:
-                merged["suggestion"] = suggestion_map[symbol]
+            # 直接更新到數據庫
+            for analysis_result in analysis_results:
+                symbol = analysis_result["Symbol"]
+                try:
+                    result = self.mongo_handler.upsert_doc(
+                        "fundamentals_of_top_list_symbols",
+                        {"symbol": symbol, "today_date": ny_today},
+                        {"sec_filing_analysis": analysis_result}
+                    )
+                    logger.info(f"保存SEC分析 {symbol}: {result}")
+                except Exception as e:
+                    logger.error(f"保存SEC分析 {symbol} 時出錯: {e}")
+            
+            # 刷新緩存
+            self._get_db_documents(force_refresh=True)
+            
+            return len(analysis_results)
+        
+        logger.info("No new symbols need SEC analysis")
+        return 0
 
-            # Add SEC filing analysis if available
-            if symbol in sec_filing_analysis_map:
-                merged["sec_filing_analysis"] = sec_filing_analysis_map[symbol]
-
-            self.merged_fundamentals.append(merged)
-
-        return self.merged_fundamentals
-
-    def extract_final_results(self):
-        """Extract and format final results."""
-        # Extract SEC filing analysis results
-        new_filing_financial_analysis_results = []
-        try:
-            for entry in self.merged_fundamentals:
-                sec_filing_analysis = entry['fundamental'].get('sec_filing_analysis')
-                if sec_filing_analysis:
-                    new_filing_financial_analysis_results.append(sec_filing_analysis)
-        except Exception as e:
-            logger.warning(f"Error extracting sec_filing_analysis: {e}")
-
-        # Extract fundamentals
-        new_fundamentals = []
-        try:
-            for entry in self.merged_fundamentals:
-                fundamental = entry['fundamental']
-                new_fundamentals.append(fundamental)
-        except Exception as e:
-            logger.warning(f"Error extracting fundamentals: {e}")
-
-        return new_fundamentals, new_filing_financial_analysis_results
+    def build_final_results(self):
+        """構建最終結果"""
+        logger.info("Building final results...")
+        
+        # 獲取所有今日的基本面文檔
+        documents = self._get_db_documents()
+        
+        # 構建最終結果
+        final_fundamentals = []
+        final_sec_analyses = []
+        
+        for doc in documents:
+            # 基本面數據
+            final_fundamentals.append(doc)
+            
+            # SEC分析結果（如果存在）
+            if "sec_filing_analysis" in doc:
+                final_sec_analyses.append(doc["sec_filing_analysis"])
+        
+        logger.info(f"Final results: {len(final_fundamentals)} fundamentals, {len(final_sec_analyses)} SEC analyses")
+        
+        return final_fundamentals, final_sec_analyses
 
     def print_readable_suggestions(self, suggestions: list[dict]):
         """Print suggestions in a human-readable format."""
@@ -341,42 +435,51 @@ class DataHandler:
 
     def run(self, list_of_symbols):
         """
-        Main execution method that orchestrates the entire data processing pipeline.
-        
-        Args:
-            list_of_symbols (list): List of stock symbols to analyze
-            
-        Returns:
-            tuple: (new_fundamentals, new_filing_financial_analysis_results)
+        調試版本的主執行方法
         """
-        logger.info(f"Running DataHandler with symbols: {list_of_symbols}")
+        logger.info(f"=== 開始運行 DataHandler，處理 {len(list_of_symbols)} 個符號 ===")
+        logger.info(f"符號列表: {list_of_symbols}")
         
         self.list_of_symbols = list_of_symbols
+        self._db_cache.clear()  # 清空緩存
         
-        # Step 1: Process symbols and get fundamentals with analysis
+        # Step 1: 處理符號並獲取基本面數據和分析
+        logger.info("=== Step 1: 處理符號和基本面數據 ===")
         self.fundamentals = self.handle_symbols(self.list_of_symbols)
         
-        # Step 2: Store fundamentals in database
+        if not self.fundamentals:
+            logger.error("❌ 沒有獲取到任何基本面數據！")
+            return [], []
+        
+        logger.info(f"✅ 成功處理 {len(self.fundamentals)} 個基本面數據")
+        
+        # Step 2: 將基本面數據存儲到數據庫
+        logger.info("=== Step 2: 存儲基本面數據到數據庫 ===")
         self.store_fundamentals_in_db()
         
-        # Step 3: Handle suggestions
-        existing_suggestions = self.get_existing_suggestions()
-        new_suggestions = self.analyze_new_symbols_for_suggestions(existing_suggestions)
-        self.merge_all_suggestions(existing_suggestions, new_suggestions)
+        # Step 3: 處理建議
+        logger.info("=== Step 3: 處理建議 ===")
+        new_suggestions_count = self.process_suggestions()
         
-        # Step 4: Print new suggestions
-        self.print_readable_suggestions(new_suggestions)
+        # Step 4: 處理SEC分析
+        logger.info("=== Step 4: 處理SEC分析 ===")
+        new_analyses_count = self.process_sec_analysis()
         
-        # Step 5: Handle SEC filing analysis
-        already_analyzed_symbols = self.get_existing_sec_analysis()
-        self.sec_filing_financial_analysis_results = self.perform_sec_filing_analysis(already_analyzed_symbols)
+        # Step 5: 構建最終結果
+        logger.info("=== Step 5: 構建最終結果 ===")
+        final_fundamentals, final_sec_analyses = self.build_final_results()
         
-        # Step 6: Build final merged data
-        self.build_final_merged_data()
+        # Step 6: 檢查合併錯誤
+        logger.info("=== Step 6: 檢查合併錯誤 ===")
+        self.check_merge_errors()
         
-        # Step 7: Extract and return final results
-        new_fundamentals, new_filing_financial_analysis_results = self.extract_final_results()
+        logger.info(f"""
+        === 處理完成！ ===
+        - 處理符號數量: {len(self.list_of_symbols)}
+        - 新建議數量: {new_suggestions_count}
+        - 新SEC分析數量: {new_analyses_count}
+        - 返回基本面數據: {len(final_fundamentals)}
+        - 返回SEC分析: {len(final_sec_analyses)}
+        """)
         
-        logger.info(f"Processing completed. Returning {len(new_fundamentals)} fundamentals and {len(new_filing_financial_analysis_results)} SEC analyses.")
-        
-        return new_fundamentals, new_filing_financial_analysis_results
+        return final_fundamentals, final_sec_analyses
