@@ -158,9 +158,10 @@ class DataHandler:
                 as_json=True
             )
             list_of_short_squeeze_results.append(short_squeeze_results)
-            self.squeeze_scanner.print_readable_analysis()
+            logger.info(f"Short Squeeze Analysis for {fundamental['symbol']} Ready!")
+            #self.squeeze_scanner.print_readable_analysis()
 
-        logger.info(f"list_of_short_squeeze_results Lengths: {len(list_of_short_squeeze_results)}")
+        logger.info(f"Short Squeeze Analysis Lengths: {len(list_of_short_squeeze_results)}")
         
         # 優化的合併方法：直接字典更新
         squeeze_results_map = {item['symbol']: item for item in list_of_short_squeeze_results if item.get('symbol')}
@@ -172,6 +173,7 @@ class DataHandler:
                 squeeze_data = squeeze_results_map[symbol].copy()
                 squeeze_data.pop('symbol', None)  # 移除 symbol 鍵避免重複
                 fundamental_item.update(squeeze_data)
+                logger.info(f"Short Squeeze Analysis Merged into Fundamentals for {symbol} !")
         
         logger.info(f"Successfully merged short squeeze analysis for {len(squeeze_results_map)} symbols")
         return self.fundamentals
@@ -198,7 +200,7 @@ class DataHandler:
             logger.info(f"樣本數據字段: {sample_keys[:10]}...")  # 只顯示前10個字段
         
         # Perform short squeeze analysis
-        return self.perform_short_squeeze_analysis()
+        return self.perform_short_squeeze_analysis() #return fundamentals with short squeeze analysis
 
     def store_fundamentals_in_db(self):
         """Store or update fundamental data in MongoDB - 添加詳細調試信息"""
@@ -217,6 +219,7 @@ class DataHandler:
                 logger.warning(f"Symbol {fundamental['symbol']} 缺少字段: {missing_fields}")
         
         ny_time = datetime.now(ZoneInfo("America/New_York"))
+        ny_today = ny_time.strftime('%Y-%m-%d')
         date_list = [(ny_time - timedelta(days=i)).strftime('%Y-%m-%d') for i in range(7)]
         
         logger.info(f"查詢最近 7 天的數據: {date_list}")
@@ -237,46 +240,44 @@ class DataHandler:
         saved_count = 0
         updated_count = 0
 
-        # Update fundamentals with recent dates and store in DB
         for fundamental in self.fundamentals:
             symbol = fundamental["symbol"]
+            fundamental["today_date"] = ny_today
+
+            # 取出這個 symbol 最近 7 天的舊資料
+            recent_docs = [doc for doc in recent_fundamental_docs if doc["symbol"] == symbol]
             
-            if symbol in recent_symbols:
-                # 查找該符號的最新日期
-                dates = [doc["today_date"] for doc in recent_fundamental_docs if doc["symbol"] == symbol]
-                if dates:
-                    latest_date = max(dates)
-                    fundamental["today_date"] = latest_date
-                    logger.info(f"更新 {symbol} 的數據，日期: {latest_date}")
-                    
-                    # 執行 upsert 操作
-                    try:
-                        result = self.mongo_handler.upsert_doc(
-                            "fundamentals_of_top_list_symbols",
-                            {"symbol": symbol, "today_date": latest_date},
-                            fundamental
-                        )
-                        logger.info(f"Upsert {symbol} 結果: {result}")
-                        updated_count += 1
-                    except Exception as e:
-                        logger.error(f"保存 {symbol} 時出錯: {e}")
+            if recent_docs:
+                # 找到最新的那筆（若有多筆）
+                latest_doc = max(recent_docs, key=lambda d: d["today_date"])
+
+                # 保留舊資料中其他字段，更新為新資料（新資料優先）
+                merged_data = {**latest_doc, **fundamental}
+                merged_data["today_date"] = ny_today  # 一定是今天
+
+                try:
+                    result = self.mongo_handler.upsert_doc(
+                        "fundamentals_of_top_list_symbols",
+                        {"symbol": symbol, "today_date": ny_today},
+                        merged_data
+                    )
+                    logger.info(f"更新 {symbol}：合併舊資料後保存為今天的資料")
+                    updated_count += 1
+                except Exception as e:
+                    logger.error(f"更新 {symbol} 時出錯: {e}")
             else:
-                # 新數據，使用今天的日期
-                fundamental["today_date"] = ny_today
-                logger.info(f"新增 {symbol} 的數據，日期: {ny_today}")
-                
+                # 沒有舊資料，直接插入今天的資料
                 try:
                     result = self.mongo_handler.upsert_doc(
                         "fundamentals_of_top_list_symbols",
                         {"symbol": symbol, "today_date": ny_today},
                         fundamental
                     )
-                    logger.info(f"Upsert {symbol} 結果: {result}")
+                    logger.info(f"新增 {symbol} 為今天的新資料")
                     saved_count += 1
                 except Exception as e:
-                    logger.error(f"保存 {symbol} 時出錯: {e}")
-        
-        logger.info(f"數據庫操作完成: 新增 {saved_count} 個，更新 {updated_count} 個")
+                    logger.error(f"儲存 {symbol} 時出錯: {e}")
+
         
         # 驗證保存結果
         time.sleep(1)
@@ -445,7 +446,7 @@ class DataHandler:
         
         # Step 1: 處理符號並獲取基本面數據和分析
         logger.info("=== Step 1: 處理符號和基本面數據 ===")
-        self.fundamentals = self.handle_symbols(self.list_of_symbols)
+        self.fundamentals = self.handle_symbols(self.list_of_symbols) #return fundamentals with short squeeze analysis
         
         if not self.fundamentals:
             logger.error("❌ 沒有獲取到任何基本面數據！")
